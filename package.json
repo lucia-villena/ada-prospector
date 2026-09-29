@@ -1,0 +1,11 @@
+{
+  "name": "ada-prospector",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ADA Prospector: mentor de prospeccion para alumnos de la Academia de Arbitraje.",
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/sdk": "latest",
+    "@netlify/blobs": "latest"
+  }
+}

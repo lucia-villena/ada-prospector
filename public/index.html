@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ADA Prospector</title>
+<meta name="description" content="Mentor de prospección de la Academia de Arbitraje.">
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#0A0908">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230A0908'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%23FFC93D'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<!-- Acceso -->
+<section id="gate" class="gate" hidden>
+  <form id="gate-form" class="gate-box" autocomplete="off">
+    <div class="brand"><i></i>ADA <span>PROSPECTOR</span></div>
+    <h1 class="display">Acceso para <em>alumnos</em>.</h1>
+    <p class="sub">Ingresá el código que te dio ADA.</p>
+    <label class="lab" for="gate-code">CÓDIGO DE ACCESO</label>
+    <input id="gate-code" class="field" type="password" inputmode="text" autocapitalize="off" autocorrect="off" spellcheck="false" required>
+    <p id="gate-error" class="gate-error" role="alert" hidden></p>
+    <button class="btn primary" type="submit">Entrar</button>
+  </form>
+</section>
+
+<div id="app" hidden>
+  <header class="top">
+    <a class="brand" href="./" aria-label="ADA Prospector, inicio"><i></i>ADA <span>PROSPECTOR</span></a>
+    <nav class="nav" aria-label="Principal">
+      <button class="navbtn" id="nav-prospectos" type="button">Prospectos</button>
+      <button class="navbtn" id="nav-perfil" type="button">Perfil</button>
+      <button class="navbtn" id="nav-nueva" type="button">Nueva</button>
+    </nav>
+  </header>
+
+  <!-- Conversación -->
+  <main id="view-chat" class="stage">
+    <div class="col" id="thread">
+      <section id="hero" class="hero">
+        <div class="kicker">MENTOR DE PROSPECCIÓN</div>
+        <h1 class="display">¿En qué te <em>ayudo</em>?</h1>
+        <p class="sub">Pasame la conversación y te digo en qué punto estás.</p>
+        <div class="dia" id="dia" hidden></div>
+        <div class="tools" id="tools"></div>
+      </section>
+      <section id="sim-setup" class="simsetup" hidden></section>
+      <div id="messages"></div>
+    </div>
+  </main>
+
+  <!-- Prospectos -->
+  <main id="view-prospectos" class="stage" hidden>
+    <div class="col" id="prospectos-root"></div>
+  </main>
+
+  <!-- Biblioteca -->
+  <main id="view-biblioteca" class="stage" hidden>
+    <div class="col" id="biblioteca-root"></div>
+  </main>
+
+  <footer class="composer" id="composer">
+    <div class="composer-in">
+      <div class="notice" id="notice" role="status" hidden></div>
+      <div class="modebar" id="modebar" hidden>
+        <span class="lab gold" id="modebar-label"></span>
+        <button class="linkbtn" id="modebar-exit" type="button">Salir del modo</button>
+      </div>
+      <div class="hintbar" id="hintbar" hidden></div>
+      <div class="chips" id="chips"></div>
+      <textarea id="input" rows="1" placeholder="Contame qué pasó con el prospecto y lo vemos." aria-label="Mensaje"></textarea>
+      <div class="actions">
+        <div class="actions-l">
+          <button class="btn" id="btn-attach" type="button">Adjuntar</button>
+          <button class="btn" id="btn-full" type="button" hidden title="Los adjuntos viejos de esta charla se resumen para gastar menos: este botón manda el chat completo de nuevo, una vez.">Reanalizar completo</button>
+          <button class="btn" id="btn-mic" type="button" hidden>Dictar</button>
+          <button class="btn" id="btn-eval" type="button" hidden>Terminar<span class="wide"> y evaluar</span></button>
+        </div>
+        <button class="btn primary" id="btn-send" type="button">Enviar</button>
+      </div>
+      <div class="foot lab" id="foot">ENTER PARA ENVIAR · SHIFT + ENTER NUEVA LÍNEA</div>
+    </div>
+    <input id="file" type="file" multiple hidden accept="image/*,.pdf,.txt,.md,.csv,.zip,.docx,audio/*,.opus,.ogg,.m4a,.mp3,.wav,.webm">
+  </footer>
+</div>
+
+<!-- Perfil y memoria -->
+<div id="scrim" class="scrim" hidden></div>
+<aside id="drawer" class="drawer" hidden aria-label="Perfil y memoria">
+  <div class="drawer-head">
+    <div>
+      <div class="lab gold">TU PERFIL</div>
+      <h2 class="dtitle">Lo que ADA tiene en cuenta</h2>
+    </div>
+    <button class="linkbtn" id="drawer-close" type="button">Cerrar</button>
+  </div>
+  <p class="note">Se guarda solo en este navegador. Completá lo que quieras: ADA no te lo vuelve a preguntar.</p>
+  <form id="perfil-form" class="pform" autocomplete="off">
+    <label class="lab" for="f-nombre">NOMBRE</label>
+    <input class="field" id="f-nombre" name="nombre" maxlength="60">
+
+    <label class="lab" for="f-etapa">ETAPA EN EL PROGRAMA</label>
+    <select class="field" id="f-etapa" name="etapa">
+      <option value="">Sin indicar</option>
+      <option>Recién empiezo</option>
+      <option>Construcción (cuentas, verificado, primeros contactos)</option>
+      <option>Optimización (opero todos los días)</option>
+      <option>Escalado (ya tengo clientes)</option>
+    </select>
+
+    <label class="lab" for="f-experiencia">EXPERIENCIA CON ESTO</label>
+    <input class="field" id="f-experiencia" name="experiencia" maxlength="120" placeholder="Por ejemplo: 3 meses operando en P2P">
+
+    <label class="lab" for="f-objetivo">OBJETIVO ACTUAL</label>
+    <input class="field" id="f-objetivo" name="objetivo" maxlength="160" placeholder="Por ejemplo: conseguir mi primer cliente recurrente">
+
+    <label class="lab" for="f-tipo">TIPO DE CLIENTE QUE BUSCÁS</label>
+    <input class="field" id="f-tipo" name="tipo_cliente" maxlength="160" placeholder="Por ejemplo: comercios con caja diaria">
+
+    <fieldset class="checks">
+      <legend class="lab">CANALES QUE USÁS</legend>
+      <label class="check"><input type="checkbox" name="canales" value="P2P"><span>P2P</span></label>
+      <label class="check"><input type="checkbox" name="canales" value="Redes"><span>Redes</span></label>
+      <label class="check"><input type="checkbox" name="canales" value="Presencial"><span>Presencial</span></label>
+      <label class="check"><input type="checkbox" name="canales" value="Prospección en frío"><span>Prospección en frío</span></label>
+    </fieldset>
+
+    <label class="lab" for="f-capacidad">CAPACIDAD OPERATIVA</label>
+    <input class="field" id="f-capacidad" name="capacidad" maxlength="160" placeholder="Por ejemplo: verificado, certificación cargada">
+
+    <div class="row3">
+      <div>
+        <label class="lab" for="f-ticket">TICKET MÁX. (USDT)</label>
+        <input class="field" id="f-ticket" name="ticket" inputmode="numeric" maxlength="12">
+      </div>
+      <div>
+        <label class="lab" for="f-horas">HORAS POR DÍA</label>
+        <input class="field" id="f-horas" name="horas" inputmode="decimal" maxlength="4">
+      </div>
+      <div>
+        <label class="lab" for="f-clientes">CLIENTES HOY</label>
+        <input class="field" id="f-clientes" name="clientes" inputmode="numeric" maxlength="4">
+      </div>
+    </div>
+
+    <label class="lab" for="f-notas">ALGO MÁS QUE ADA DEBA SABER</label>
+    <textarea class="field" id="f-notas" name="notas" rows="3" maxlength="400"></textarea>
+
+    <button class="btn primary" type="submit">Guardar perfil</button>
+    <span id="perfil-saved" class="saved" hidden>Guardado</span>
+  </form>
+
+  <div class="mem">
+    <div class="lab gold">LO QUE ADA APRENDIÓ DE VOS</div>
+    <p class="note">Notas que ADA propone y vos aprobás. Se usan en tus próximas conversaciones.</p>
+    <ul id="mem-list" class="memlist"></ul>
+  </div>
+
+  <div class="backup">
+    <div class="lab gold">RESPALDO</div>
+    <p class="note">Todo esto vive solo en este navegador. Exportá una copia para guardarla o pasarla a otro dispositivo; importá una copia para restaurarla.</p>
+    <div class="actions-l">
+      <button class="btn small" id="btn-exportar" type="button">Exportar copia</button>
+      <button class="btn small" id="btn-importar" type="button">Importar copia</button>
+    </div>
+    <input id="file-importar" type="file" accept="application/json" hidden>
+  </div>
+
+  <div class="danger">
+    <button class="linkbtn" id="btn-borrar" type="button">Borrar todos mis datos de este navegador</button>
+    <button class="linkbtn" id="btn-salir" type="button">Salir</button>
+  </div>
+</aside>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

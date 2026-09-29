@@ -1,0 +1,169 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Pruebas de logica del servidor</title>
+<body style="background:#0A0908;color:#EDEAE0;font:14px monospace;padding:16px">
+<pre id="out">corriendo…</pre>
+<script type="module">
+import { runPipeline, parseVerdict, pedirContexto, contextText } from "/__lib/pipeline.mjs";
+import { lint, checkCitas } from "/__lib/lint.mjs";
+import { sanitizeRequest, sanitizeMessages } from "/__lib/validate.mjs";
+import { buildSystem, buildVerifierSystem, modeConfig, getMode } from "/__lib/prompt.mjs";
+import { hoyArg, claveUso } from "/__lib/quota.mjs";
+import { MODULES, MODES } from "/__lib/knowledge.generated.mjs";
+
+const results = [];
+const ok = (name, cond, extra = "") => results.push(`${cond ? "PASS" : "FAIL"}  ${name}${cond ? "" : "  <-- " + extra}`);
+
+// ---- cliente falso de Anthropic
+function stream(text, onFinal) {
+  const chunks = text.match(/[\s\S]{1,40}/g) || [];
+  return {
+    async *[Symbol.asyncIterator]() {
+      yield { type: "content_block_start", content_block: { type: "thinking" } };
+      for (const d of chunks) yield { type: "content_block_delta", delta: { type: "text_delta", text: d } };
+    },
+    async finalMessage() { onFinal?.(); return { stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 3 } }; },
+  };
+}
+function fakeClient({ draft = "Borrador ok.", verdict = '{"aprobada":true,"problemas":[]}', revise = "Versión corregida.", rejectFallbackOnce = false, onDraftDone, onVerifyDone } = {}) {
+  const calls = { stream: [], create: [], beta: 0, plain: 0 };
+  let draftServed = false;
+  const serve = (params, viaBeta) => {
+    calls.stream.push({ params, viaBeta });
+    const isRevision = params.messages.length > 0 && params.messages.at(-1).content?.[0]?.text?.startsWith("[CONTROL DE CALIDAD INTERNO");
+    if (isRevision) return stream(revise);
+    return stream(draft, onDraftDone);
+  };
+  return {
+    calls,
+    beta: { messages: { stream: (p) => { calls.beta++; if (rejectFallbackOnce && !draftServed) { draftServed = true; const e = new Error("fallbacks: unknown beta"); e.status = 400; throw e; } return serve(p, true); } } },
+    messages: {
+      stream: (p) => { calls.plain++; return serve(p, false); },
+      create: async (p) => { calls.create.push(p); onVerifyDone?.(); return { content: [{ type: "text", text: verdict }], usage: { input_tokens: 5, output_tokens: 5 } }; },
+    },
+  };
+}
+const userMsg = (t) => ({ role: "user", content: [{ type: "text", text: t }] });
+const ctxOf = (t = "Le mandé un mensaje y me dejó en visto.") => ({ mode: "analizar_conversacion", perfil: {}, memoria: [], sim: null, messages: [userMsg(t)] });
+async function run(client, opts = {}) {
+  const events = [];
+  const r = await runPipeline({ client, system: [{ type: "text", text: "S" }], verifierSystem: [{ type: "text", text: "V" }], ctx: opts.ctx || ctxOf(), verificar: opts.verificar ?? true, esfuerzo: "medium", maxTokens: opts.maxTokens, emit: (e) => events.push(e), budgetMs: opts.budgetMs ?? 55000, now: opts.now });
+  const text = events.filter((e) => e.t === "text").map((e) => e.d).join("");
+  return { r, events, text, fases: events.filter((e) => e.t === "fase").map((e) => e.d), meta: events.find((e) => e.t === "meta") };
+}
+
+try {
+  // 1. aprobado
+  let c = fakeClient({ draft: "Acá yo frenaría. Estás vendiendo antes de entender qué necesita." });
+  let x = await run(c);
+  ok("1 aprobada: muestra el borrador", x.text.startsWith("Acá yo frenaría"), x.text);
+  ok("1 control ok", x.meta?.control === "ok", JSON.stringify(x.meta));
+  ok("1 fases en orden", x.fases.join(",") === "leyendo,redactando,verificando", x.fases.join(","));
+  ok("1 usa Opus para el borrador", c.calls.stream[0].params.model === "claude-opus-5");
+  ok("1 usa Sonnet para verificar", c.calls.create[0].model === "claude-sonnet-5");
+  ok("1 thinking adaptive + effort", c.calls.stream[0].params.thinking.type === "adaptive" && c.calls.stream[0].params.output_config.effort === "medium");
+  ok("1 fallbacks por defecto", c.calls.stream[0].viaBeta === true && c.calls.stream[0].params.fallbacks === "default" && c.calls.stream[0].params.betas[0] === "server-side-fallback-2026-07-01");
+  ok("1 max_tokens por defecto si el modo no manda uno", c.calls.stream[0].params.max_tokens === 4000, c.calls.stream[0].params.max_tokens);
+  c = fakeClient({ draft: "Corto." });
+  x = await run(c, { maxTokens: 800 });
+  ok("1b max_tokens del modo se respeta (ahorro de salida)", c.calls.stream[0].params.max_tokens === 800, c.calls.stream[0].params.max_tokens);
+
+  // 2. veredicto bloqueante -> revision
+  c = fakeClient({ draft: "Borrador con invención.", verdict: JSON.stringify({ aprobada: false, falta_informacion: false, problemas: [{ criterio: "invencion", severidad: "bloqueante", detalle: "Inventa que el prospecto ya usa otra financiera", correccion: "Marcarlo como hipótesis" }], preguntas: [] }), revise: "Versión corregida sin invenciones." });
+  x = await run(c);
+  ok("2 muestra la revisión y no el borrador", x.text === "Versión corregida sin invenciones.", x.text);
+  ok("2 control ajustada + fase ajustando", x.meta?.control === "ajustada" && x.fases.includes("ajustando"), JSON.stringify(x.meta));
+  const revCall = c.calls.stream[1].params.messages;
+  ok("2 la revisión recibe el borrador como turno del asistente", revCall.at(-2).role === "assistant" && revCall.at(-2).content[0].text === "Borrador con invención.");
+  ok("2 la instrucción incluye el problema", revCall.at(-1).content[0].text.includes("Inventa que el prospecto"));
+
+  // 3. lint duro fuerza revision aunque el verificador apruebe
+  c = fakeClient({ draft: "Hacelo sin compromiso, es seguro.", revise: "Proponele una prueba chica." });
+  x = await run(c);
+  ok("3 lint duro fuerza revisión", x.meta?.control === "ajustada" && x.text === "Proponele una prueba chica.", JSON.stringify(x.meta) + x.text);
+
+  // 4. veredicto ilegible
+  c = fakeClient({ draft: "Respuesta normal.", verdict: "no es json" });
+  x = await run(c);
+  ok("4 veredicto ilegible no bloquea", x.text === "Respuesta normal." && x.meta?.control === "sin_veredicto", JSON.stringify(x.meta));
+
+  // 5. sin tiempo para ajustar -> pide contexto
+  let t = 0;
+  c = fakeClient({ draft: "Mandale este mensaje exacto.", verdict: JSON.stringify({ aprobada: false, falta_informacion: true, problemas: [{ criterio: "especificidad", severidad: "bloqueante", detalle: "Recomienda sin contexto", correccion: "Pedir contexto" }], preguntas: ["¿Qué servicio le ofreciste?", "¿Qué te contestó exactamente?"] }), onDraftDone: () => { t += 10000; }, onVerifyDone: () => { t += 15000; } });
+  x = await run(c, { budgetMs: 40000, now: () => t });
+  ok("5 pide contexto cuando no hay tiempo", x.meta?.control === "pedido_de_contexto" && x.text.includes("¿Qué servicio le ofreciste?"), JSON.stringify(x.meta));
+  ok("5 no muestra el borrador", !x.text.includes("Mandale este mensaje exacto"));
+
+  // 6. rechazo de fallbacks -> reintento sin ellos
+  c = fakeClient({ draft: "Ok sin fallbacks.", rejectFallbackOnce: true });
+  x = await run(c);
+  ok("6 reintenta sin fallbacks", x.text === "Ok sin fallbacks." && c.calls.plain >= 1, `beta=${c.calls.beta} plain=${c.calls.plain}`);
+
+  // 7. simulador: sin verificación, en vivo
+  c = fakeClient({ draft: "Ok, decime." });
+  x = await run(c, { verificar: false });
+  ok("7 simulador en vivo sin verificador", x.text === "Ok, decime." && c.calls.create.length === 0 && x.meta?.control === "sin_control", JSON.stringify(x.meta));
+
+  // 8. parseVerdict
+  const pv = parseVerdict('texto {"aprobada": false, "problemas":[{"criterio":"alcance","severidad":"bloqueante","detalle":"d","correccion":"c"}], "falta_informacion": true, "preguntas":["a","b","c","d"]} fin');
+  ok("8 parseVerdict tolera texto alrededor y limita preguntas", pv && pv.aprobada === false && pv.preguntas.length === 3 && pv.problemas[0].severidad === "bloqueante");
+  ok("8 pedirContexto tiene pregunta por defecto", pedirContexto(null).includes("¿Qué le mandaste"));
+
+  // 9. lint
+  ok("9 lint detecta fee en pesos", lint("Te cobro una comisión de $150.000").hard.some((h) => h.id === "fee-en-pesos"));
+  ok("9 lint detecta 'te paso dólares'", lint("Yo te paso dólares al instante").hard.some((h) => h.id === "dolares-entregados"));
+  ok("9 lint no marca porcentajes", lint("El servicio es 1,5% sobre el total, anclado a la referencia.").hard.length === 0);
+  ok("9 lint estilo: dos muletillas piden revisión", lint("Claro, es importante destacar que sí. Espero que te sirva.").requiereRevision === true);
+  ok("9 lint deja pasar 'no es instantáneo'", lint("Recibe cuando recompro, no es instantáneo.").requiereRevision === false);
+
+  // 9b. citas: chequeo determinista contra la evidencia del turno (sin modelo)
+  const evChat = "12/3/26 10:14 - Marcos: Pasame info del servicio así lo veo con calma";
+  ok("9b cita real en la evidencia: sin problema", checkCitas('Dijo "pasame info del servicio así lo veo con calma".', evChat).length === 0);
+  ok("9b cita inventada: se marca", checkCitas('Dijo "que ya tiene tres proveedores fijos hace años".', evChat).some((p) => p.id === "cita-no-encontrada"));
+  ok("9b sin evidencia cargada: no se puede chequear, no marca nada", checkCitas('Dijo "cualquier cosa entre comillas".', "").length === 0);
+  ok("9b ignora lo que va dentro del bloque de cita (mensaje propio, no cita del chat)", checkCitas('> "Esto lo escribe el mentor, no el prospecto."', evChat).length === 0);
+  ok("9b lint(texto, evidencia) fuerza revisión si la cita no está", lint('Hecho. Dijo "que ya opera con otra financiera hace un año".', evChat).requiereRevision === true);
+  ok("9b lint sin evidencia no fuerza por citas", lint('Hecho. Dijo "que ya opera con otra financiera hace un año".').requiereRevision === false);
+
+  // 9c. tope diario por código (quota.mjs): solo la parte determinista, sin Netlify Blobs
+  ok("9c hoyArg da formato AAAA-MM-DD", /^\d{4}-\d{2}-\d{2}$/.test(hoyArg()), hoyArg());
+  ok("9c claveUso combina la fecha y el código", claveUso("ada2025") === `${hoyArg()}:ada2025`);
+  ok("9c claveUso distingue codigos distintos", claveUso("a") !== claveUso("b"));
+
+  // 10. validate
+  const good = sanitizeRequest({ mode: "libre", perfil: { nombre: " Ana ", canales: ["P2P", "Hack"], x: "no" }, memoria: ["a", { t: "b" }], messages: [{ role: "user", content: [{ type: "text", text: "hola" }, { type: "image", media: "image/jpeg", data: "AAAA" }] }] });
+  ok("10 acepta pedido válido", !!good.value && good.value.perfil.nombre === "Ana" && good.value.perfil.canales.length === 1 && !("x" in good.value.perfil) && good.value.memoria.length === 2, JSON.stringify(good));
+  ok("10 rechaza bloque desconocido", !!sanitizeMessages([{ role: "user", content: [{ type: "tool_use", id: "x" }] }]).error);
+  ok("10 rechaza si el último no es del alumno", !!sanitizeMessages([{ role: "user", content: [{ type: "text", text: "a" }] }, { role: "assistant", content: [{ type: "text", text: "b" }] }]).error);
+  ok("10 rechaza imagen con base64 inválido", !!sanitizeMessages([{ role: "user", content: [{ type: "image", media: "image/png", data: "<script>" }] }]).error);
+  ok("10 rechaza tipo de imagen no permitido", !!sanitizeMessages([{ role: "user", content: [{ type: "image", media: "image/svg+xml", data: "AAAA" }] }]).error);
+  ok("10 el asistente no puede mandar imágenes", !!sanitizeMessages([{ role: "assistant", content: [{ type: "image", media: "image/png", data: "AAAA" }] }, { role: "user", content: [{ type: "text", text: "a" }] }]).error);
+  ok("10 modo desconocido cae en libre", getMode("hackeado") === "libre");
+
+  // 11. prompts por modo
+  for (const id of Object.keys(MODES)) {
+    const s = buildSystem({ mode: id, evaluar: false, perfil: { nombre: "Ana" }, memoria: ["Tiende a cotizar antes de diagnosticar."], sim: { tipo: "Acumula pesos", dificultad: "Fácil", canal: "WhatsApp", objetivo: "Primer contacto" } });
+    ok(`11 ${id}: 3 bloques, 2 con cache`, s.length === 3 && s[0].cache_control && s[1].cache_control && !s[2].cache_control);
+    ok(`11 ${id}: perfil y memoria en el bloque dinámico`, s[2].text.includes("Ana") && s[2].text.includes("Tiende a cotizar"));
+  }
+  const sys = buildSystem({ mode: "analizar_conversacion", perfil: {}, memoria: [] });
+  const all = sys.map((b) => b.text).join("\n");
+  ok("11 el modo de análisis trae etapas y errores", all.includes("Prospecto identificado") && all.includes("Detector de errores"));
+  ok("11 trae el núcleo y las prohibiciones", all.includes("Regla fundamental: certeza") && all.includes("Lo que NUNCA va en un recurso"));
+  ok("11 no trae la receta de órdenes fantasma (solo la prohibición)", !/Orden fantasma \(publicar/.test(all) && !/cancelaciones por d/.test(all) && /no se usan nunca/.test(all));
+  ok("11 no muestra códigos internos", !/\[M [A-G]\./.test(all) && !/\[F0\d/.test(all));
+  ok("11 simulador solo en su modo", buildSystem({ mode: "simulador", perfil: {}, memoria: [] }).map((b) => b.text).join("").includes("Rúbrica") || MODULES.simulador.length > 0);
+  ok("11 verificador con conocimiento cacheado", buildVerifierSystem("analizar_conversacion")[1].cache_control?.type === "ephemeral");
+  ok("11 modeConfig: simulador no verifica, evaluar sí", modeConfig("simulador", false).verificar === false && modeConfig("simulador", true).verificar === true && modeConfig("simulador", false).esfuerzo === "low");
+  ok("11 modeConfig: max_tokens bajo para el personaje del simulador, alto para evaluar", modeConfig("simulador", false).maxTokens <= 1000 && modeConfig("simulador", true).maxTokens >= 2500, JSON.stringify([modeConfig("simulador", false), modeConfig("simulador", true)]));
+  ok("11 modeConfig: analizar_conversacion tiene más margen de salida que que_respondo", modeConfig("analizar_conversacion").maxTokens > modeConfig("que_respondo").maxTokens);
+
+  const tokens = Object.fromEntries(Object.keys(MODES).map((id) => [id, Math.round(buildSystem({ mode: id, perfil: {}, memoria: [] }).map((b) => b.text).join("").length / 3.6)]));
+  results.push("\nTokens aprox. de sistema por modo: " + JSON.stringify(tokens));
+} catch (e) {
+  results.push("ERROR INESPERADO: " + (e.stack || e));
+}
+const fails = results.filter((r) => r.startsWith("FAIL") || r.startsWith("ERROR")).length;
+document.getElementById("out").textContent = results.join("\n") + `\n\nRESULTADO: ${fails === 0 ? "TODO OK" : fails + " FALLAS"}`;
+</script>
+</body>

@@ -1,0 +1,128 @@
+{
+  "_": "Manifiesto del conocimiento de ADA Prospector. Cada modulo se arma con secciones del MAESTRO (fuente oficial), del NUCLEO curado y de archivos locales. Para crecer: agregar un archivo en knowledge/local o sumar secciones aca y correr tools/build-knowledge.ps1.",
+  "sources": {
+    "maestro": "../Kit Producto ADA/MAESTRO-ARBITRAJE-DISENO.md",
+    "nucleo": "../ADA_PROSPECTOR_NUCLEO_CURADO.md"
+  },
+  "modules": {
+    "core": {
+      "descripcion": "Siempre presente: personalidad, certeza, reglas invariables, prohibiciones, limites, definiciones y glosario.",
+      "parts": [
+        { "local": "mentor.md" },
+        { "local": "certeza.md" },
+        { "nucleo": ["N1"] },
+        { "maestro": ["Parte C", "A.4", "A.8", "B.2", "Anexo"] }
+      ]
+    },
+    "servicio": {
+      "descripcion": "Propuesta de valor, servicio, precio como porcentaje, arquetipos, velocidad.",
+      "parts": [
+        { "maestro": ["A.1", "A.3", "A.5", "B.12"] },
+        { "nucleo": ["N4", "N5"] }
+      ]
+    },
+    "captacion": {
+      "descripcion": "Cliente ideal, canales, primer mensaje, prospeccion, del contacto a la primera operacion.",
+      "parts": [
+        { "maestro": ["A.6", "A.10", "B.11", "B.13"] },
+        { "nucleo": ["N2", "N3", "N6"] }
+      ]
+    },
+    "conversacion": {
+      "descripcion": "Etapas, errores, respuesta, alertas de seguridad, confianza, analisis de conversaciones.",
+      "parts": [
+        { "local": "etapas.md" },
+        { "local": "errores.md" },
+        { "local": "respuesta.md" },
+        { "nucleo": ["N7", "N9", "N10", "N11"] },
+        { "maestro": ["B.9", "B.17"] }
+      ]
+    },
+    "objeciones": {
+      "descripcion": "Mapa y textos de respuesta a objeciones.",
+      "parts": [
+        { "nucleo": ["N8"] }
+      ]
+    },
+    "simulador": {
+      "descripcion": "Rubrica del simulador.",
+      "parts": [
+        { "nucleo": ["N13"] }
+      ]
+    },
+    "plan": {
+      "descripcion": "Plan de accion, trabas mentales, arbol de decision, alumno y programa.",
+      "parts": [
+        { "nucleo": ["N14"] },
+        { "maestro": ["B.15", "B.16", "B.19"] }
+      ]
+    },
+    "verificador": {
+      "descripcion": "Prompt del control de calidad.",
+      "parts": [
+        { "local": "verificador.md" }
+      ]
+    }
+  },
+  "modes": {
+    "libre": {
+      "modulos": ["servicio", "captacion", "conversacion", "objeciones", "plan"],
+      "instruccion": "modo-libre.md",
+      "verificar": true,
+      "esfuerzo": "medium",
+      "maxTokens": 3000
+    },
+    "analizar_conversacion": {
+      "modulos": ["servicio", "captacion", "conversacion", "objeciones"],
+      "instruccion": "modo-analizar.md",
+      "verificar": true,
+      "esfuerzo": "medium",
+      "maxTokens": 4000
+    },
+    "que_respondo": {
+      "modulos": ["servicio", "captacion", "conversacion", "objeciones"],
+      "instruccion": "modo-responder.md",
+      "verificar": true,
+      "esfuerzo": "medium",
+      "maxTokens": 2000
+    },
+    "buscar_clientes": {
+      "modulos": ["servicio", "captacion", "plan"],
+      "instruccion": "modo-buscar.md",
+      "verificar": true,
+      "esfuerzo": "medium",
+      "maxTokens": 2500
+    },
+    "analizar_prospecto": {
+      "modulos": ["servicio", "captacion", "conversacion"],
+      "instruccion": "modo-prospecto.md",
+      "verificar": true,
+      "esfuerzo": "medium",
+      "maxTokens": 2500
+    },
+    "mejorar_mensaje": {
+      "modulos": ["servicio", "captacion", "conversacion", "objeciones"],
+      "instruccion": "modo-mejorar.md",
+      "verificar": true,
+      "esfuerzo": "medium",
+      "maxTokens": 2200
+    },
+    "analizar_captura": {
+      "modulos": ["servicio", "captacion", "conversacion", "objeciones"],
+      "instruccion": "modo-captura.md",
+      "verificar": true,
+      "esfuerzo": "medium",
+      "maxTokens": 3500
+    },
+    "simulador": {
+      "modulos": ["servicio", "captacion", "conversacion", "objeciones", "simulador"],
+      "instruccion": "modo-simulador.md",
+      "verificar": false,
+      "esfuerzo": "low",
+      "esfuerzoEvaluacion": "medium",
+      "verificarEvaluacion": true,
+      "maxTokens": 800,
+      "maxTokensEvaluacion": 3000
+    }
+  }
+}

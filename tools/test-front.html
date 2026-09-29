@@ -1,0 +1,114 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Pruebas del navegador</title>
+<body style="background:#0A0908;color:#EDEAE0;font:14px monospace;padding:16px">
+<pre id="out">corriendo…</pre>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script type="module">
+import { parseWhatsApp, processFile, isAudio } from "/js/attach.js";
+import { md, stripMemoria, extractMemoria, extractResumen, stripResumen } from "/js/render.js";
+
+const results = [];
+const ok = (name, cond, extra = "") => results.push(`${cond ? "PASS" : "FAIL"}  ${name}${cond ? "" : "  <-- " + extra}`);
+
+const android = [
+  "12/3/26 10:14 - Los mensajes y llamadas están cifrados de extremo a extremo.",
+  "12/3/26 10:14 - Sol: Hola Marcos, te escribo por lo de USDT",
+  "12/3/26 16:40 - Marcos: Pasame info",
+  "12/3/26 16:41 - Sol: Dale, te cuento",
+  "12/3/26 16:42 - Marcos: <Multimedia omitido>",
+  "13/3/26 9:00 - Sol: Buen día!",
+  "continúa el mensaje anterior en otra línea",
+  "13/3/26 9:05 - Marcos Gimenez: Hola",
+].join("\n");
+const ios = [
+  "[12/3/26 10:14:22] Sol: Hola",
+  "[12/3/26 10:15:01] Marcos: Buenas",
+  "[12/3/26 10:16:10] Sol: ¿Cómo resolvés hoy la recaudación?",
+  "[12/3/26 10:20:00] Marcos: Retiro y compro billete",
+  "[12/3/26 10:21:00] Sol: Entiendo",
+  "[12/3/26 10:22:00] Sol: Te pregunto algo más",
+].join("\n");
+
+try {
+  const a = parseWhatsApp(android);
+  ok("WA Android: detecta participantes y descarta mensajes del sistema", a && a.participantes.length === 3 && a.total === 6, JSON.stringify(a));
+  ok("WA Android: rango de fechas en el resumen", a && a.resumen.includes("12/3/26 10:14") && a.resumen.includes("13/3/26 9:05"), a?.resumen);
+  const i = parseWhatsApp(ios);
+  ok("WA iPhone: formato con corchetes", i && i.participantes[0][0] === "Sol" && i.total === 6, JSON.stringify(i));
+  ok("WA: texto común no se toma por chat", parseWhatsApp("Hola, esto es un texto cualquiera\nsin formato de chat") === null);
+  ok("WA: mensaje del sistema con comillas no es participante", !parseWhatsApp(android + '\n14/3/26 10:00 - Sol cambió el asunto a "Ventas: mayo"').participantes.some(([n]) => n.includes("asunto")));
+
+  // Archivos de texto
+  const f = new File([android], "Chat de WhatsApp con Marcos.txt", { type: "text/plain" });
+  const [att] = await processFile(f);
+  ok("processFile: .txt de WhatsApp queda marcado como chat con resumen", att.kind === "text" && att.chat === true && att.resumen.includes("Participantes"), JSON.stringify({ ...att, text: "…" }));
+  const [plain] = await processFile(new File(["Nota suelta de un prospecto"], "nota.md", { type: "text/markdown" }));
+  ok("processFile: nota simple no es chat", plain.kind === "text" && plain.chat === false);
+  const big = new File(["a".repeat(600000)], "enorme.txt", { type: "text/plain" });
+  let err = "";
+  try { await processFile(big); } catch (e) { err = e.message; }
+  ok("processFile: rechaza texto enorme con mensaje claro", err.includes("muy largo"), err);
+  err = "";
+  try { await processFile(new File(["x"], "planilla.xlsx", { type: "application/vnd.ms-excel" })); } catch (e) { err = e.message; }
+  ok("processFile: tipo no soportado da mensaje útil", err.includes("No puedo leer") && err.includes(".xlsx"), err);
+  ok("isAudio detecta notas de voz de WhatsApp", isAudio(new File([""], "PTT-20260312-WA0001.opus", { type: "" })) && !isAudio(new File([""], "chat.txt", { type: "text/plain" })));
+
+  // Imágenes: normal y captura larga
+  const mk = (w, h) => new Promise((res) => { const c = document.createElement("canvas"); c.width = w; c.height = h; const x = c.getContext("2d"); x.fillStyle = "#eee"; x.fillRect(0, 0, w, h); x.fillStyle = "#000"; x.fillRect(10, 10, 50, 50); c.toBlob(res, "image/png"); });
+  const imgs = await processFile(new File([await mk(2400, 1600)], "captura.png", { type: "image/png" }));
+  ok("imagen grande se achica a JPEG", imgs.length === 1 && imgs[0].media === "image/jpeg" && imgs[0].data.length > 100, imgs[0]?.media);
+  const tall = await processFile(new File([await mk(1000, 5000)], "chat-largo.png", { type: "image/png" }));
+  ok("captura larga se corta en partes", tall.length === 3 && tall[0].name.includes("parte 1 de 3"), tall.length + " " + tall.map((t) => t.name).join("|"));
+  err = "";
+  try { await processFile(new File([await mk(600, 9000)], "infinita.png", { type: "image/png" })); } catch (e) { err = e.message; }
+  ok("captura interminable se rechaza con instrucción", err.includes("demasiado larga"), err);
+
+  // ZIP y DOCX
+  if (window.JSZip) {
+    const z = new JSZip();
+    z.file("_chat.txt", android);
+    z.file("IMG-0001.jpg", "binario");
+    const zb = await z.generateAsync({ type: "blob" });
+    const [za] = await processFile(new File([zb], "WhatsApp Chat.zip", { type: "application/zip" }));
+    ok("zip de WhatsApp: extrae el chat y lo reconoce", za.kind === "text" && za.chat === true && za.name === "_chat.txt", JSON.stringify({ ...za, text: "…" }));
+    const d = new JSZip();
+    d.file("word/document.xml", '<w:document><w:body><w:p><w:r><w:t>Propuesta &amp; precio</w:t></w:r></w:p><w:p><w:r><w:t>Segundo párrafo</w:t></w:r></w:p></w:body></w:document>');
+    const db = await d.generateAsync({ type: "blob" });
+    const [da] = await processFile(new File([db], "propuesta.docx"));
+    ok("docx: extrae el texto y decodifica entidades", da.text === "Propuesta & precio\nSegundo párrafo", JSON.stringify(da.text));
+    const e2 = new JSZip(); e2.file("foto.jpg", "x");
+    err = "";
+    try { await processFile(new File([await e2.generateAsync({ type: "blob" })], "sin-chat.zip", { type: "application/zip" })); } catch (e) { err = e.message; }
+    ok("zip sin chat da mensaje claro", err.includes("no tiene un chat"), err);
+  } else results.push("SKIP  JSZip no cargó (sin conexión al CDN)");
+
+  // Renderizado
+  const h = md("**Hecho.** Respondió tarde.\n\n**Inferencia.** Puede ser interés.\n\n> Hola Marcos,\n> ¿cómo resolvés hoy la recaudación?\n\n- uno\n- dos\n\n1. primero\n2. segundo\n\n---\n\n**Etapa**\n\ntexto con *cursiva* y `código`");
+  ok("md: etiquetas hecho/inferencia", h.includes('class="tag t-hecho"') && h.includes('class="tag t-inferencia"'), h.slice(0, 200));
+  ok("md: cita con botón copiar", h.includes('class="quote"') && h.includes("data-copy") && h.includes("Hola Marcos,<br>¿cómo"), h);
+  ok("md: listas ordenadas y no ordenadas", h.includes("<ul><li>uno</li><li>dos</li></ul>") && h.includes("<ol><li>primero</li><li>segundo</li></ol>"));
+  ok("md: sin cursiva (regla de marca)", !h.includes("<em>") && !h.includes("<i>") && h.includes("texto con cursiva"));
+  const xss = md("<img src=x onerror=alert(1)> **ok** <script>alert(1)<" + "/script>");
+  ok("md: escapa HTML", !xss.includes("<img") && !xss.includes("<script") && xss.includes("&lt;script&gt;"), xss);
+  ok("md: no cuelga con líneas raras", md("- \n*\n#\n>\n1.\n---").length > 0);
+  ok("memoria: se quita del texto y se extrae", stripMemoria("Respuesta.\n\n<memoria>Tiende a cotizar antes.</memoria>") === "Respuesta." && extractMemoria("x <memoria> Tiende a cotizar antes. </memoria>") === "Tiende a cotizar antes.");
+  ok("memoria: etiqueta a medio llegar no se ve en streaming", stripMemoria("Respuesta.\n\n<memoria>Tiende a", true) === "Respuesta." && stripMemoria("Respuesta.\n\n<mem", true) === "Respuesta.");
+
+  // Tarjeta de resumen (etapa + próximo paso): primero lo accionable, con o sin etapa reconocida
+  const r1 = extractResumen("<resumen>etapa: Propuesta presentada\npaso: Mandale la pregunta sobre cómo resguarda hoy la recaudación.</resumen>\n\nTexto después.");
+  ok("resumen: extrae etapa y paso", r1 && r1.etapa === "Propuesta presentada" && r1.paso.includes("resguarda hoy") && r1.idx === 4, JSON.stringify(r1));
+  const r2 = extractResumen("<resumen>etapa: \npaso: Contame qué le mandaste y qué te contestó.</resumen>");
+  ok("resumen: etapa vacía no rompe y queda sin posición", r2 && r2.etapa === "" && r2.idx === -1, JSON.stringify(r2));
+  ok("resumen: sin bloque no hay tarjeta", extractResumen("Solo texto normal, sin etiqueta.") === null);
+  ok("resumen: se quita del texto visible", stripResumen("<resumen>etapa: X\npaso: Y</resumen>\n\nHola.") === "Hola.");
+  ok("resumen: a medio llegar no se ve en streaming", stripResumen("<resumen>etapa: Prop", true) === "" && stripResumen("Ya empezó.\n<res", true) === "Ya empezó.");
+  const hR = md("<resumen>etapa: Objeción\npaso: Respondele la objeción del precio antes de seguir.</resumen>\n\n**Qué veo**\n\nTexto.");
+  ok("md: la tarjeta de resumen se renderiza y el título de sección se distingue de hecho/inferencia", hR.includes('class="verdict"') && hR.includes("Objeción") && hR.includes('class="sec"') && !hR.includes('class="tag'));
+} catch (e) {
+  results.push("ERROR INESPERADO: " + (e.stack || e));
+}
+const fails = results.filter((r) => r.startsWith("FAIL") || r.startsWith("ERROR")).length;
+document.getElementById("out").textContent = results.join("\n") + `\n\nRESULTADO: ${fails === 0 ? "TODO OK" : fails + " FALLAS"}`;
+</script>
+</body>
